@@ -2,7 +2,7 @@ Package: rchemo
 Type: Package
 Title: Dimension Reduction, Regression and Discrimination for
         Chemometrics
-Version: 0.1-1
+Version: 0.1-2
 Authors@R: c(
     person("Marion", "Brandolini-Bunlon", email = "marion.brandolini-bunlon@inrae.fr", role = c("aut", "cre")),
     person("Benoit", "Jaillais", email = "benoit.jaillais@inrae.fr", role = c("aut")),
@@ -19,11 +19,11 @@ URL: https://github.com/ChemHouse-group/rchemo/
 License: GPL-3
 LazyData: yes
 NeedsCompilation: no
-Packaged: 2023-05-11 10:15:36 UTC; mbrandolini
+Packaged: 2024-06-05 18:15:03 UTC; mbrandolini
 Author: Marion Brandolini-Bunlon [aut, cre],
   Benoit Jaillais [aut],
   Jean-Michel Roger [aut],
   Matthieu Lesnoff [aut]
 Maintainer: Marion Brandolini-Bunlon <marion.brandolini-bunlon@inrae.fr>
 Repository: CRAN
-Date/Publication: 2023-05-12 14:00:02 UTC
+Date/Publication: 2024-06-05 18:30:02 UTC
