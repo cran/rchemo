@@ -15,7 +15,7 @@ Functions such as **transform**, **predict**, **coef** and **summary** are avail
 
 All the functions have a **help page** with a documented example. 
 
-**NOTE**: This repository replaces the previous [rchemo repository](https://github.com/mlesnoff/rchemo) that now is archived. 
+**NOTE**: This repository replaces the previous [rchemo repository] that was on https://github.com/mlesnoff and is now archived. 
 
 ## <span style="color:green"> **News** </span> 
 
@@ -28,7 +28,7 @@ news(package = "rchemo")
 
 ## <span style="color:green"> **Installation** </span> 
 
-Using [**Rstudio**](https://posit.co/download/rstudio-desktop/) is recommended for installation and usage.
+Using [**Rstudio**](https://docs.posit.co/ide/user/#rstudio-ide-oss-downloads) is recommended for installation and usage.
 
 **rchemo** can be installed from the official R repo [**CRAN**](https://cran.r-project.org/).
 

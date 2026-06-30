@@ -1,0 +1,575 @@
+---
+title: 'Sequential and Orthogonalised PLS Discriminant Analysis'
+author: "Marion Brandolini-Bunlon"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+vignette: >
+  %\VignetteIndexEntry{Sequential and Orthogonalised PLS Discriminant Analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+output:
+  html_document:
+    code_folding: show
+    df_print: kable
+    highlight: pygments
+    number_sections: yes
+    self_contained: yes
+    theme: journal
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+  editor_options:
+    chunk_output_type: console
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+# The Sequential and Orthogonalised PLS Discriminant Analysis method
+
+Metabolomics is a powerful phenotyping tool, generating complex data that need 
+dedicated treatments to enrich knowledge of biological systems. In particular, 
+to investigate relations between experimental factors and metabolism, 
+discriminant statistical analyses are generally performed on metabolomic 
+datasets. In this context, the SOPLSDA method makes it possible to assess the 
+complementarity of data blocks in predicting or explaining a categorical 
+variable.
+
+Reference: Næs T, Tomic O, Afseth NK, Segtnan V, Måge I. Multi block regression 
+based on combinations of orthogonalisation, PLS-regression and canonical 
+correlation analysis. Chemom Intel Lab Syst. 2013;124:32-42. 
+
+
+A selection of reduced non-targeted metabolomics datasets from an article of 
+Zhang et al. have been used to illustrate the method application. 
+(Zhang, Y.; Barupal, D.K.; Fan, S.; Gao, B.; Zhu, C.; Flenniken, A.M.; 
+McKerlie, C.; Nutter, L.M.J.; Lloyd, K.C.K.; Fiehn, O. Sexual Dimorphism of the 
+Mouse Plasma Metabolome Is Associated with Phenotypes of 30 Gene Knockout Lines. 
+Metabolites 2023, 13, 947. https://doi.org/10.3390/metabo13080947).
+
+In our example, the 6 samples from 5 mutant groups (Dhfr, Gnpda1, Plk1, Sra1, 
+Ulk3) and the 40 controls were retained, with the exception of 2 animals that 
+had missing values in non-targeted metabolomics. Three HILIC-NEG and 2 HILIC-POS
+variables were then removed due to missing or infinite values.
+Lastly, we kept only 2 data blocks (GCTOF and HILIC NEG) to reduce the 
+computation time.
+Always in our example, the objective was to highlight metabolites discriminating 
+males and females.
+
+
+# R environment preparation
+
+```{r setup, class.source='fold-hide', warning=FALSE}
+#install.packages("knitr")
+library(knitr)
+opts_chunk$set(echo = TRUE)
+
+# To ensure reproducibility
+set.seed(12)
+```
+
+
+```{r packages_installation, eval=FALSE, class.source='fold-hide'}
+pkgs <- c("rchemo")
+sapply(pkgs, function(x) {
+  if (!requireNamespace(x, quietly = TRUE)) {
+    install.packages(x)
+  }
+})
+```
+
+```{r packages_load, warning=FALSE, message=FALSE, class.source='fold-hide'}
+library(rchemo)  # to load rchemo
+```
+
+# Data preprocessing
+
+A demonstration dataset used for this example is imported.
+It contains 2 metabolomics datasets and 1 sample metadata block, with the 
+groups to be discriminated.
+
+```{r import_Zhang2023}
+data(Zhang2023, package = "rchemo")
+```
+
+All data blocks should have exactly the same samples (rows). 
+The block dimension can be checked with the following command:
+
+```{r check_dims, class.source='fold-hide'}
+# Check dimension
+BlockNames <- names(Zhang2023)
+nbrBlocs <- length(BlockNames)
+dims <- lapply(X=Zhang2023[BlockNames], FUN=dim)
+names(dims) <- BlockNames
+dims
+
+# Remove unuseful object for the next steps
+rm(nbrBlocs, dims)
+```
+
+The identical order of samples in the three blocks should be ensured.
+
+```{r check_orders_and_names, class.source='fold-hide'}
+# Check rows names in any order
+row_names <- lapply(X=Zhang2023[BlockNames], FUN=rownames)
+rns <- do.call(cbind, row_names)
+rns.unique <- apply(rns, 1, function(x) length(unique(x)))
+if (max(rns.unique) > 1) {
+  stop("Rows names are not identical between blocks.")
+}
+
+# Check order of samples
+check_row_names <- all(sapply(X=row_names, FUN=identical, y = row_names[[1]]))
+if (!check_row_names && max(rns.unique) == 1) {
+  print("Rows names are not in the same order for all blocks.")
+}
+
+# Remove unuseful object for the next steps
+rm(row_names, rns, rns.unique, check_row_names)
+```
+
+
+```{r change_data_format}
+GCTOF <- Zhang2023$GCTOF
+HILICNEG <- Zhang2023$HILICNEG
+sample_metadata <- Zhang2023$metadata
+rm(Zhang2023)
+```
+
+# Data visualization by PCA on separate data blocks
+
+PCA on different datablocks is necessary to verify that there is no outlier, 
+and that the data scaling is suited.
+In our example, unit variance scaling is suited: For both metabolomic dataset, 
+the scatterplot of loadings is homogeneous, and there are no outliers.
+With other datasets, particularly those containing more noise, it would have 
+been necessary to apply a log transformation with Pareto scaling.
+
+```{r PCA_separate_datablocks, class.source='fold-hide'}
+# GCTOF with unit variance scaling
+pcaGCTOF <- pcanipalsna(X = scale(GCTOF[,1:dim(GCTOF)[2]]), nlv = nrow(GCTOF), 
+                         gs = TRUE,
+                         tol = .Machine$double.eps^0.5, maxit = 200)
+
+## diagram of explained variance
+barplot(summary(pcaGCTOF,X = scale(GCTOF[,1:dim(GCTOF)[2]]))$explvar$pvar * 100, names.arg = 1:nrow(summary(pcaGCTOF,X = scale(GCTOF[,1:dim(GCTOF)[2]]))$explvar), main = "diagram of explained variance - PCA GCTOF")
+
+## score plot
+plotxy(X= pcaGCTOF$T, group = sample_metadata$Gender, 
+       asp = 0, col = 3:4, alpha.f = .8,
+       zeroes = TRUE, circle = FALSE, ellipse = FALSE,
+       labels = FALSE,
+       legend = TRUE, main = "scores - PCA GCTOF", ncol = 1,
+       pch=16)
+## loading plot
+plotxy(X= pcaGCTOF$P, group = NULL, 
+       asp = 0, col = NULL, alpha.f = .8,
+       zeroes = TRUE, circle = FALSE, ellipse = FALSE,
+       labels = TRUE,
+       legend = FALSE, main = "loadings - PCA GCTOF", ncol = 1,
+       cex=0.8) 
+
+#HILICNEG with unit variance scaling
+pcaHILICNEG <- pcanipalsna(X = scale(HILICNEG[,1:dim(HILICNEG)[2]]), nlv = nrow(HILICNEG), 
+                         gs = TRUE,
+                         tol = .Machine$double.eps^0.5, maxit = 200)
+
+## diagram of explained variance
+barplot(summary(pcaHILICNEG,X = scale(HILICNEG[,1:dim(HILICNEG)[2]]))$explvar$pvar * 100, names.arg = 1:nrow(summary(pcaHILICNEG,X = scale(HILICNEG[,1:dim(HILICNEG)[2]]))$explvar), main = "diagram of explained variance - PCA HILIC NEG")
+
+## score plot
+plotxy(X= pcaHILICNEG$T, group = sample_metadata$Gender, 
+       asp = 0, col = 3:4, alpha.f = .8,
+       zeroes = TRUE, circle = FALSE, ellipse = FALSE,
+       labels = FALSE,
+       legend = TRUE, main = "scores - PCA HILIC NEG", ncol = 1,
+       pch=16)
+
+## loading plot
+plotxy(X= pcaHILICNEG$P, group = NULL, 
+       asp = 0, col = NULL, alpha.f = .8,
+       zeroes = TRUE, circle = FALSE, ellipse = FALSE,
+       labels = TRUE,
+       legend = FALSE, main = "loadings - PCA HILIC NEG", ncol = 1,
+       cex=0.8)
+
+
+# Remove unuseful object for the next steps
+rm(pcaGCTOF, pcaHILICNEG)
+```
+
+
+# SO-PLS-DA model
+
+In SO-PLS-DA, datablocks are involved sequentially in the model.
+
+- The first explanatory block is scaled and a PLS-DA model is build to predict the
+response variable.
+
+- Then, the next explanatory block is orthogonalised to the PLS components, before
+a PLS model to explain the residuals, etc...
+
+- The final prediction is the results of the sum of the predictions by the PLS 
+models.
+
+The interpretation is based on the separate PLS models included in the SO-PLS 
+modelling.
+
+The main steps to apply this method are:
+
+- the determination of the optimal number of latent variables of each model 
+included in the SO-PLS-DA one, proposed in the package by cross-validation
+
+- the model validation, proposed by permutation test
+
+- the model analysis, based on the scatter plot, the loading plot, the Variable 
+Importance in Projection of each PLS model
+
+- the calculation of the predicted categories for each observation.
+
+In rchemo, all these steps can be performed with a single function.
+
+- Xlist: list of training X-data (n, p).
+
+- Xnames: names of the X-matrices
+
+- Xscaling: vector of Xlist length. X variable scaling among "none" 
+(mean-centering only), "pareto" (mean-centering and pareto scaling), "sd" 
+(mean-centering and unit variance scaling). If "pareto" or "sd", uncorrected 
+standard deviation is used.
+
+- Y: Training Y-data (n, 1).
+
+- Yscaling: Y variable scaling among "none" (mean-centering only), "pareto" 
+(mean-centering and pareto scaling), "sd" (mean-centering and unit variance 
+scaling). If "pareto" or "sd", uncorrected standard deviation is used.
+
+- weights Weights (n, 1) to apply to the training observations. Internally,
+weights are "normalized" to sum to 1. Default to NULL (weights are set to 1/n).
+
+- newXlist: list of new X-data (m, p) to consider.
+
+- newXnames: names of the newX-matrices
+
+- method: method to apply among "soplsrda","soplslda","soplsqda"
+
+- prior: for soplslda or soplsqda models : The prior probabilities of the 
+classes. Possible values are "unif" (default; probabilities are set equal for 
+all the classes) or "prop" (probabilities are set equal to the observed 
+proportions of the classes in y).
+
+- step: step of the analysis among "nlvtest" (cross-validation to help determine 
+the optimal number of latent variables), "permutation" (permutation test),
+"model" (model calculation),"prediction" (prediction of newX-data or X-data if 
+any))
+
+- nlv: if step is not "nlvtest". A vector of same length as the number of blocks 
+defining the number of scores to calculate for each block, or a single number. 
+In this last case, the same number of scores is used for all the blocks.
+
+- nlvlist: if step is "nlvtest". A list of same length as the number of 
+X-blocks. Each component of the list gives the number of PLS components of the 
+corresponding X-block to test.
+
+- modeloutput: if step is "model": outputs among "scores", "loadings", "coef" 
+(regression coefficients), "vip" (Variable Importance in Projection; the VIP 
+calculation being based on the proportion of Y-variance explained by the 
+components, as proposed by Mehmood et al (2012, 2020).)
+
+- cvmethod: if step is "nlvtest" or "permutation": "kfolds" for k-folds 
+cross-validation, or "loo" for leave-one-out.
+
+- nbrep: if step is "nlvtest" and cvmethod is "kfolds": An integer, setting the 
+number of CV repetitions. Default value is 30. Must me set to 1 if cvmethod is 
+"loo"
+
+- seed: if step is "nlvtest" and cvmethod is "kfolds", or if step is 
+"permutation: a numeric. Seed used for the repeated resampling
+
+- samplingk: A vector of length n. The elements are the values of a qualitative 
+variable used for stratified partition creation. If NULL, the first observation 
+is set in the first fold, the second observation in the second fold, etc...
+
+- nfolds: if cvmethod is "kfolds". An integer, setting the number of partitions 
+to create.Default value is 10.
+
+- npermut: if step is "permutation": An integer, setting the number of Y-Block 
+with permutated responses to create. Default value is 30.
+
+- optimisation: if step is "nlvtest", method for the error optimisation among 
+"global" (the optimal number of latent variables is determined after all the 
+ordred block combination have been computed), or "sequential" (the optimal 
+number of latent variables is determined after each addition of X-block).
+
+- criterion: if step is "nlvtest" or "permutation" and method is "soplsrda", 
+"soplslda" or "soplsqda": optimisation criterion among "rmse" and "err" (for 
+classification error rate)))
+
+- selection: if step is "nlvtest": a character indicating the selection method 
+to use to choose the optimal combination of components, among "localmin",
+"globalmin","1std". If "localmin": the optimal combination corresponds to the 
+first local minimum of the mean CV rmse or error rate. If "globalmin" : the 
+optimal combination corresponds to the minimum mean CV rmse or error rate. If 
+"1std" (one standard error rule) : it corresponds to the first combination after 
+which the mean cross-validated rmse or error rate does not decrease significantly.
+
+## determination by cross-validation of the optimal number of latent variables of the model 
+
+In this example,the soplslda method with an uniform prior is performed: a linear
+discriminant analysis is applied on the PLS scores to obtain the classifications.
+In the soplsrda method, the classification step is performed according to the 
+predicted value, and consequently, it doesn't take into account the variance of 
+the scatter plot. And the soplsqda method is mode suited when the scatter plot 
+has an atypical shape.
+
+The cvmethod is to choose according to the number of observations. If this
+number is small, a leave-one-out cross-validation is more suited, but can lead 
+to optimistic results. In the other cases, it could be better to apply a k-fold
+cross-validation, usually with 3, 5 or 10 folds.
+In order to reduce the computational time, in this example, the number of cross-
+validation repetition is set to 10. But it must be higher (at least 30).
+
+Concerning the criterion, in a discriminant context, it is more logical to 
+choose the classification error rate. However, this can result in an error plot
+depending on the number of latent variables that is not smooth, so some prefer 
+to use rmsecv instead.
+
+In the example, the selection parameter is set to "localmin". Normally, the 
+cross-validated error decreases until it reaches the optimal number of latent 
+variables, before rising again. Sometimes it fluctuates before this rise, so 
+choosing “localmin” allows for a more parsimonious model. The “1std” option is 
+also very parsimonious because it only considers a larger number of latent 
+variables if doing so significantly improves the cross-validated error.
+
+The plot of the results (called "Mage plot") indicates the number of latent 
+variables of each block (in the order of the block involvement in the model), 
+and the corresponding error rates and sum of latent variables.
+
+```{r run_nlvtest}
+nlvtestsoplsda <- soplsr_soplsda_allsteps(Xlist = list(GCTOF = GCTOF[,1:dim(GCTOF)[2]], 
+                                                       HILICNEG = HILICNEG[,1:dim(HILICNEG)[2]]), 
+                                          Xnames = c("GCTOF", "HILICNEG"), 
+                                          Xscaling = c("none","pareto","sd")[3], 
+                                          Y = sample_metadata[,"Gender",drop=FALSE], 
+                                          Yscaling = c("none","pareto","sd")[1], weights = NULL,
+                                          #newXlist = NULL, newXnames = NULL,
+                                          
+                                          method = c("soplsrda","soplslda","soplsqda")[2],
+                                          prior = c("unif", "prop")[1],
+                                          
+                                          step = c("nlvtest","permutation","model","prediction")[1],
+                                          # nlv = c(),
+                                          nlvlist = list(0:3, 0:3), 
+                                          # modeloutput = c("scores","loadings","coef","vip"), 
+                                          
+                                          cvmethod = c("kfolds","loo")[1], 
+                                          nbrep = 10, 
+                                          seed = 123, 
+                                          samplingk = NULL, 
+                                          nfolds = 3, 
+                                          # npermut = 30, 
+                                          
+                                          optimisation = c("global","sequential")[1],
+                                          criterion = c("err","rmse")[1], 
+                                          selection = c("localmin","globalmin","1std")[1],
+                                          
+                                          #import = c("R","ChemFlow","W4M")[1],
+                                          outputfilename = NULL)
+
+
+# to plot the results of the cross-validation
+plot(nlvtestsoplsda[,"nlvsum"],nlvtestsoplsda[,"mean"], type = "n", xlab = "nlv sum", ylab = "classification error rate", 
+     main = "error rates obtained from the different numbers \n of latent variable combinaisons of the 2 datablocks")
+text(x=nlvtestsoplsda[,"nlvsum"], y=nlvtestsoplsda[,"mean"], 
+     labels=paste0(nlvtestsoplsda[,"Xlist1"],",",nlvtestsoplsda[,"Xlist2"]))
+
+nlvoptsoplsda <- nlvtestsoplsda[which(nlvtestsoplsda[,"optimum"]==1),c("Xlist1","Xlist2")] # to obtain the optimal number of LV.
+
+# Remove unuseful object for the next steps
+rm(nlvtestsoplsda)
+```
+
+## model validation by permutation test
+Usually, the  cross-validation parameters are the same than for the 
+determination of the optimal number of latent variables.
+In this example, as for the determination of the optimal number of latent 
+variables, in order to reduce the computational time, the number of cross-
+validation repetition and the number of permuted responses are set to 10. 
+But they must be higher (at least 30).
+
+To be valid, all the cross-validated errors obtained on permuted data must be
+lower than the cross-validated error obtained on the original data.
+
+```{r run_permutation}
+permutsoplsda <- soplsr_soplsda_allsteps(Xlist = list(GCTOF = GCTOF[,1:dim(GCTOF)[2]], 
+                                                      HILICNEG = HILICNEG[,1:dim(HILICNEG)[2]]), 
+                                         Xnames = c("GCTOF", "HILICNEG"), 
+                                         Xscaling = c("none","pareto","sd")[3], 
+                                         Y = sample_metadata[,"Gender",drop=FALSE], 
+                                         Yscaling = c("none","pareto","sd")[1], weights = NULL,
+                                         #newXlist = NULL, newXnames = NULL,
+                                         
+                                         method = c("soplsrda","soplslda","soplsqda")[2],
+                                         prior = c("unif", "prop")[1],
+                                         
+                                         step = c("nlvtest","permutation","model","prediction")[2],
+                                         nlv = nlvoptsoplsda,
+                                         #nlvlist = list(),
+                                         #modeloutput = c("scores","loadings","coef","vip"), 
+                                         
+                                         cvmethod = c("kfolds","loo")[1], 
+                                         nbrep = 10, 
+                                         seed = 123, 
+                                         samplingk = NULL, 
+                                         nfolds = 3, 
+                                         npermut = 10, 
+                                         
+                                         # optimisation = c("global","sequential")[1],
+                                         criterion = c("err","rmse")[1], 
+                                         # selection = c("localmin","globalmin","1std")[1],
+                                         
+                                         #import = c("R","ChemFlow","W4M")[1],
+                                         outputfilename = NULL)
+
+#plot of the results
+plot(permutsoplsda, pch = 16, ylab = "CV classification error rate", xlab = "dyssimilarity Y-Ypermuted")
+
+# Remove unuseful object for the next steps
+rm(permutsoplsda)
+```
+
+## model analysis, based on the scatter plot, the loading plot, the Variable Importance in Projection
+The score plot allows to show the group discrimination.
+Based on the VIP curve, the threshold to consider that a variable is important
+can be set.
+
+In our example, latent variables of the 2 matrices are retained by the SO-PLS-DA 
+method to best discriminate the groups. Consequently, we have two loading plots 
+and two VIP curves, and the scores obtained from the two matrices could be
+concatenated.
+
+
+```{r run_model}
+modelsoplsda <- soplsr_soplsda_allsteps(Xlist = list(GCTOF = GCTOF[,1:dim(GCTOF)[2]], 
+                                                     HILICNEG = HILICNEG[,1:dim(HILICNEG)[2]]), 
+                                         Xnames = c("GCTOF", "HILICNEG"), 
+                                         Xscaling = c("none","pareto","sd")[3], 
+                                         Y = sample_metadata[,"Gender",drop=FALSE], 
+                                         Yscaling = c("none","pareto","sd")[1], weights = NULL,
+                                         #newXlist = NULL, newXnames = NULL,
+                                         
+                                         method = c("soplsrda","soplslda","soplsqda")[2],
+                                         prior = c("unif", "prop")[1],
+                                         
+                                         step = c("nlvtest","permutation","model","prediction")[3],
+                                         nlv = nlvoptsoplsda,
+                                         #nlvlist = list(), 
+                                         modeloutput = c("scores","loadings","coef","vip"), 
+                                         
+                                         # cvmethod = c("kfolds","loo")[1], 
+                                         # nbrep = 30, 
+                                         # seed = 123, 
+                                         # samplingk = NULL, 
+                                         # nfolds = 5, 
+                                         # npermut = 30, 
+                                         # 
+                                         # criterion = c("err","rmse")[1], 
+                                         # selection = c("localmin","globalmin","1std")[1],
+                                         
+                                         #import = c("R","ChemFlow","W4M")[1],
+                                         outputfilename = NULL)
+# score plot
+
+plotxy(do.call("cbind",modelsoplsda$scores)[,1:2], group = sample_metadata[,"Gender"],
+       asp = 0, col = 3:4, alpha.f = .8,
+       zeroes = TRUE, circle = FALSE, ellipse = FALSE,
+       labels = FALSE,
+       legend = TRUE, main = "scores - SO PLS DA \n first model (GCTOF variables)", ncol = 1,
+       pch=16,
+       xlab="lv1 GCTOF",
+       ylab="lv2 GCTOF")
+
+plotxy(do.call("cbind",modelsoplsda$scores)[,3:4], group = sample_metadata[,"Gender"],
+       asp = 0, col = 3:4, alpha.f = .8,
+       zeroes = TRUE, circle = FALSE, ellipse = FALSE,
+       labels = FALSE,
+       legend = TRUE, main = "scores - SO PLS DA \n 2nd model (HILIC NEG variables)", ncol = 1,
+       pch=16,
+       xlab="lv1 HILICNEG",
+       ylab="lv2 HILICNEG")
+
+# loading plot
+plotxy(modelsoplsda$loadings[[1]], pch = 16, xlab="lv1 GCTOF", ylab="lv2 GCTOF",
+       main = "loadings - SO PLS DA \n first model (GCTOF variables)")
+
+plotxy(modelsoplsda$loadings[[2]], pch = 16, xlab="lv1 HILIC NEG", ylab="lv2 HILIC NEG",
+       main = "loadings - SO PLS DA \n 2nd model (HILIC NEG variables)")
+
+# vip curve
+plot(modelsoplsda$vip[[1]][order(modelsoplsda$vip[[1]][,2], decreasing = TRUE),1,drop=FALSE], pch = 16, ylab = "VIP", xlab="GCTOF variables", main = "VIP curve - SO PLS DA \n first model (GCTOF variables)")
+
+plot(modelsoplsda$vip[[2]][order(modelsoplsda$vip[[2]][,2], decreasing = TRUE),1,drop=FALSE], pch = 16, ylab = "VIP", xlab="HILIC NEG variables", main = "VIP curve - SO PLS DA \n 2nd model (HILIC NEG variables)")
+
+# Remove unuseful object for the next steps
+rm(modelsoplsda)
+```
+
+## predicted values
+The prediction step provides a table with:
+
+- subjects scores
+
+- predicted categories
+
+- probabilities to be predicted for each category.
+```{r run_prediction}
+predsoplsda <- soplsr_soplsda_allsteps(Xlist = list(GCTOF = GCTOF[,1:dim(GCTOF)[2]], 
+                                                    HILICNEG = HILICNEG[,1:dim(HILICNEG)[2]]), 
+                                        Xnames = c("GCTOF", "HILICNEG"), 
+                                        Xscaling = c("none","pareto","sd")[3], 
+                                        Y = sample_metadata[,"Gender",drop=FALSE], 
+                                        Yscaling = c("none","pareto","sd")[1], 
+                                        weights = NULL,
+                                        newXlist = list(GCTOF = GCTOF[,1:dim(GCTOF)[2]], 
+                                                        HILICNEG = HILICNEG[,1:dim(HILICNEG)[2]]),
+                                       newXnames =  c("GCTOF", "HILICNEG"),
+                                        
+                                        method = c("soplsrda","soplslda","soplsqda")[2],
+                                        prior = c("unif", "prop")[1],
+                                        
+                                        step = c("nlvtest","permutation","model","prediction")[4],
+                                        nlv = nlvoptsoplsda, 
+                                        # nlvlist = list(),
+                                        # modeloutput = c("scores","loadings","coef","vip"), 
+                                        # 
+                                        # cvmethod = c("kfolds","loo")[1], 
+                                        # nbrep = 30, 
+                                        # seed = 123, 
+                                        # samplingk = NULL, 
+                                        # nfolds = 5, 
+                                        # npermut = 30, 
+                                        # 
+                                        # criterion = c("err","rmse")[1], 
+                                        # selection = c("localmin","globalmin","1std")[1],
+                                        # 
+                                        #import = c("R","ChemFlow","W4M")[1],
+                                        outputfilename = NULL)
+
+predsoplsda
+
+# Remove unuseful object for the next steps
+rm(predsoplsda, nlvoptsoplsda)
+```
+
+# Reproducibility
+
+This vignette was produced with the following R session configuration.
+
+```{r reproducibility}
+sessionInfo()
+```
+
+

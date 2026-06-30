@@ -141,6 +141,10 @@
 #### <span style="color:#1589F0"> SELECTION OF VARIABLES </span>
 
 - ***covsel*** COVSEL algorithm (Roger et al. 2011)
+- ***covsellm*** COVSEL algorithm associated to linear regression model
+- ***covselrda*** COVSEL algorithm associated to regression discriminant analysis
+- ***covsellda*** COVSEL algorithm associated to linear discriminant analysis
+- ***covselqda*** COVSEL algorithm associated to quadratic discriminant analysis
 
 #### <span style="color:#1589F0"> DATA MANAGEMENT </span>
 
@@ -180,6 +184,7 @@
 - ***hconcat*** Horizontal block concatenation 
 - ***blockscal*** Block autoscaling
 - ***orthog*** Orthogonalization of two blocks
+- ***consensuspca*** Consensus PCA
 - ***mbplsr***, ***mbplskern***, ***mbplsnipals***, ***mbplsrannar***: Multi-Block PLS
 - ***mbplsrda*** Multi-Block PLS-RDA
 - ***mbplslda*** Multi-Block PLS-LDA
@@ -203,6 +208,7 @@
 - ***forages*** Tropical forages
 - ***octane*** Gazoline "octane" dataset
 - ***ozone*** Los Angeles "ozone" pollution (1976) dataset
+- ***Zhang2023*** reduced non-targeted metabolomics datasets from Zhang et al.(2023)
 
 #### <span style="color:#1589F0"> GRAPHICS </span>
 

@@ -1,19 +1,26 @@
-\name{covsel}
-\alias{covsel}
+\name{covsellmr}
+\alias{covsellmr}
+\alias{predict.Covsellmr}
 \encoding{UTF-8}
 
-\title{CovSel}
+\title{CovSel-linear regression model}
 
 \description{
 
-Variable selection for high-dimensionnal data with the COVSEL method (Roger et al. 2011).
+Variable selection for high-dimensionnal data with the COVSEL method (Roger et al. 2011), followed by a linear regression model.
+
+\bold{Auxiliary functions}
+
+\code{predict} Calculates the predictions from the regression model for any new set of variables contained in the selection.
 
 }
 
 \usage{
 
-covsel(X, Y, nvar = NULL, Xscaling = c("none", "pareto", "sd")[1], 
+covsellmr(X, Y, nvar = NULL, Xscaling = c("none", "pareto", "sd")[1], 
 Yscaling = c("none", "pareto", "sd")[1], weights = NULL)
+
+\method{predict}{Covsellmr}(object, X, ..., nvar = NULL)
 
 }
 
@@ -31,11 +38,17 @@ Yscaling = c("none", "pareto", "sd")[1], weights = NULL)
 
 \item{weights}{Weights (\eqn{n, 1}) to apply to the training observations. Internally, weights are "normalized" to sum to 1. Default to \code{NULL} (weights are set to \eqn{1 / n}).}
 
+\item{object}{For the auxiliary functions: A fitted model, output of a call to the main functions.}
+
+\item{...}{For the auxiliary functions: Optional arguments. Not used.}
+
 }
 
 \value{
 
-\item{sel}{A dataframe where variable \code{sel} shows the column numbers of the variables selected in \eqn{X}.}
+\item{sel}{A dataframe where variable \code{sel} shows the column indexes of the variables selected in \eqn{X}.}
+
+\item{fm}{List of linear regression models, involving 1 to nvar selected explicative variables.}
 
 \item{weights}{The weights used for the row observations.}
 
@@ -54,7 +67,9 @@ n <- 6 ; p <- 4
 X <- matrix(rnorm(n * p), ncol = p)
 Y <- matrix(rnorm(n * 2), ncol = 2)
 
-covsel(X, Y, nvar = 3)
+sel <- covsellmr(X, Y, nvar = 3)
+
+predict(sel, X, nvar = c(2,3))
 
 }
 
